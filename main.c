@@ -16,7 +16,7 @@ DSK6713_AIC23_Config config1 = {
 	0x0011 , /* 4 Analog audio path control */
 	0x0000 , /* 5 Digital audio path control */
 	0x0000 , /* 6 Power down control */
-	0x0043 , /* 7 Digital audio interface format */// 
+	0x0043 , /* 7 Digital audio interface format *///
 	0x0081 , /* 8 Sample rate control (48 kHz) */
 	0x0001 /* 9 Digital interface activation */
 };
@@ -42,10 +42,11 @@ union { // every element represents same bits of data
 void main(void);
 void output_sample(int out_data);
 Uint32 input_sample(void);
-void Display_Switches(Uint32 Switches);
+void Display_Switches(char Switches[4]);
 
 int buff[16];
 int j=0;								// universal counter of samples
+
 
 //-------------------------------------------------------------------
 
@@ -56,30 +57,34 @@ void main(void)
 
 	CSL_init();
 
+	char Switches[4];
+
 	DSK6713_init();
 	hCodec = DSK6713_AIC23_openCodec(0, &config1);			// defaults to 16-bit frame.
 
 //	* (volatile int *) 0x0190000C = 0x000000A0;						// prefer a double 16-bit frame
 //	* (volatile int *) 0x01900010 = 0x000000A0;
 
-	Uint32 Switches, outGain = 0; // keeps track of DIP switch configuration
+	Uint32 outGain = 0; // keeps track of DIP switch configuration
 	DSK6713_DIP_init(); // doesn't do anything
 
 	DSK6713_LED_init(); // initialize LED state machine
-
+	Uint32 k, DIP_Concat;
 	for(;;) // ever
 	{
 		// polling the DIP switches, returns Uint32
-		Switches = 0; // clears register for polling again
-		for(int i = 0; i < 3; i++){
-			Switches += DSK6713_DIP_get(i);
+//		Switches = 0; // clears register for polling again
+		for(k = 0; k < 4; k++){
+			int temp = DSK6713_DIP_get(k);
+			Switches[k] = ~(0xFE | temp);
 		}
-		Switches ~= (0xFFFFFFF0|Switches); // MSb's will ~ back to 0, Switches previous value is not'd
+
+//		Switches = ~(0xFFFFFFF0|Switches); // MSb's will ~ back to 0, Switches previous value is not'd
 
 		Display_Switches(Switches); // update the LEDs to reflect switches
 
 		// Boundary condition: No switches pressed = mute left and right channels
-		if(!Switches){
+		if(!(Switches[0] || Switches[1] || Switches[2] || Switches[3])){
 			DSK6713_AIC23_mute(hCodec,1);
 			// this activates the Soft Mute mode for the DAC
 			// Digital Audio Path Control register
@@ -93,7 +98,11 @@ void main(void)
 		//								 000 0000 = -72dB
 		// Goal: Max output = 0dB gain 		= 111 1001
 		// 		 Min output = -15dB gain 	= 110 1010
-		outGain = MAX_GAIN - Switches; // 4-bit value 
+		DIP_Concat = 0;
+		for(k = 0; k < 3; k++){
+			DIP_Concat += Switches[k] << k;
+		}
+		outGain = MAX_GAIN - DIP_Concat; // 4-bit value
 		DSK6713_AIC23_outGain(hCodec, outGain);
 		// Left/Right Channel Headphone Volume Control register
 
@@ -135,12 +144,13 @@ Uint32 input_sample(void)                      	  	//for 32-bit input
 //-------------------------------------------------------------------
 
 //-------------------------------------------------------------------
-void Display_Switches(Uint32 Switches){
-	for(int i = 0; i < 3; i++){ // 4 LSb's represent the 4 switches being pressed
+void Display_Switches(char Switches[4]){
+	int i;
+	for(i = 0; i < 4; i++){ // 4 LSb's represent the 4 switches being pressed
 		if(Switches[i]){
-			DSK6713_LED_on(Switches[i]); // if the bit is true, turn the LED on
+			DSK6713_LED_on(i); // if the bit is true, turn the LED on
 		} else {
-			DSK6713_LED_off(Switches[i]); // if the bit is false, turn the LED off
+			DSK6713_LED_off(i); // if the bit is false, turn the LED off
 		}
 	}
 }
